@@ -1018,6 +1018,9 @@ capture_close()
     if (vector_count(capture_cfg.sources) == 0)
         return;
 
+    // T1: stop the ring-buffer drop sampler before tearing down sources
+    capture_stats_stop();
+
     // Close dump file
     if (capture_cfg.pd) {
         dump_close(capture_cfg.pd);
@@ -1044,6 +1047,136 @@ capture_close()
 
 }
 
+/****************************************************************************
+ ** T1 INSTRUMENTATION: capture ring-buffer drop monitor
+ **
+ ** A dedicated thread samples pcap_stats() on every online source at a fixed
+ ** interval and appends one CSV row per source per tick. Kept separate from
+ ** parse_packet on purpose: when the capture callback stalls (exactly when the
+ ** kernel ring buffer overflows) this sampler must keep running.
+ **
+ **   ps_recv   : packets received by the filter (cumulative)
+ **   ps_drop   : packets dropped because the kernel ring buffer was full  <-- key
+ **   ps_ifdrop : packets dropped by the NIC/driver (interface)
+ **
+ ** Output path:     env SNGREP_STATS_CSV          (default /tmp/sngrep_capture_stats.csv)
+ ** Sample interval: env SNGREP_STATS_INTERVAL_MS  (default 250)
+ ****************************************************************************/
+static pthread_t capture_stats_t;
+static volatile bool capture_stats_running = false;
+
+static void *
+capture_stats_monitor(void *none)
+{
+    const char *path = getenv("SNGREP_STATS_CSV");
+    if (!path)
+        path = "/tmp/sngrep_capture_stats.csv";
+
+    long interval_ms = 250;
+    const char *iv = getenv("SNGREP_STATS_INTERVAL_MS");
+    if (iv) {
+        long v = atol(iv);
+        if (v > 0)
+            interval_ms = v;
+    }
+
+    FILE *out = fopen(path, "w");
+    if (!out)
+        return NULL;
+
+    fprintf(out, "ts_unix_ms,elapsed_ms,source,recv,drop,ifdrop,d_recv,d_drop,d_ifdrop,drop_pct\n");
+    fflush(out);
+
+    int nsrc = vector_count(capture_cfg.sources);
+    if (nsrc < 1)
+        nsrc = 1;
+    u_int *prev_recv = sng_malloc(sizeof(u_int) * nsrc);
+    u_int *prev_drop = sng_malloc(sizeof(u_int) * nsrc);
+    u_int *prev_ifdrop = sng_malloc(sizeof(u_int) * nsrc);
+    memset(prev_recv, 0, sizeof(u_int) * nsrc);
+    memset(prev_drop, 0, sizeof(u_int) * nsrc);
+    memset(prev_ifdrop, 0, sizeof(u_int) * nsrc);
+
+    struct timespec start;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+
+    while (capture_stats_running) {
+        struct timespec mono, wall;
+        clock_gettime(CLOCK_MONOTONIC, &mono);
+        clock_gettime(CLOCK_REALTIME, &wall);
+        long elapsed_ms = (mono.tv_sec - start.tv_sec) * 1000
+                        + (mono.tv_nsec - start.tv_nsec) / 1000000;
+        long long ts_ms = (long long) wall.tv_sec * 1000 + wall.tv_nsec / 1000000;
+
+        int i = 0;
+        capture_info_t *capinfo;
+        vector_iter_t it = vector_iterator(capture_cfg.sources);
+        while ((capinfo = vector_iterator_next(&it))) {
+            // Skip offline (pcap file) sources: pcap_stats is not meaningful there
+            if (capinfo->infile || !capinfo->handle) {
+                i++;
+                continue;
+            }
+            struct pcap_stat ps;
+            if (pcap_stats(capinfo->handle, &ps) == 0) {
+                u_int d_recv = ps.ps_recv - prev_recv[i];
+                u_int d_drop = ps.ps_drop - prev_drop[i];
+                u_int d_ifdrop = ps.ps_ifdrop - prev_ifdrop[i];
+                double drop_pct = ps.ps_recv ? (100.0 * ps.ps_drop / ps.ps_recv) : 0.0;
+                fprintf(out, "%lld,%ld,%s,%u,%u,%u,%u,%u,%u,%.3f\n",
+                        ts_ms, elapsed_ms,
+                        capinfo->device ? capinfo->device : "online",
+                        ps.ps_recv, ps.ps_drop, ps.ps_ifdrop,
+                        d_recv, d_drop, d_ifdrop, drop_pct);
+                prev_recv[i] = ps.ps_recv;
+                prev_drop[i] = ps.ps_drop;
+                prev_ifdrop[i] = ps.ps_ifdrop;
+            }
+            i++;
+        }
+        fflush(out);
+
+        struct timespec req = { interval_ms / 1000, (interval_ms % 1000) * 1000000L };
+        nanosleep(&req, NULL);
+    }
+
+    fclose(out);
+    sng_free(prev_recv);
+    sng_free(prev_drop);
+    sng_free(prev_ifdrop);
+    return NULL;
+}
+
+static void
+capture_stats_start()
+{
+    // Only run the sampler if at least one online source exists
+    bool has_online = false;
+    capture_info_t *capinfo;
+    vector_iter_t it = vector_iterator(capture_cfg.sources);
+    while ((capinfo = vector_iterator_next(&it))) {
+        if (!capinfo->infile) {
+            has_online = true;
+            break;
+        }
+    }
+    if (!has_online)
+        return;
+
+    capture_stats_running = true;
+    if (pthread_create(&capture_stats_t, NULL, capture_stats_monitor, NULL) != 0)
+        capture_stats_running = false;
+}
+
+static void
+capture_stats_stop()
+{
+    if (!capture_stats_running)
+        return;
+    capture_stats_running = false;
+    pthread_join(capture_stats_t, NULL);
+}
+
 int
 capture_launch_thread()
 {
@@ -1061,6 +1194,9 @@ capture_launch_thread()
             return 1;
         }
     }
+
+    // T1: start the ring-buffer drop sampler alongside the capture threads
+    capture_stats_start();
 
     pthread_attr_destroy(&attr);
     return 0;
