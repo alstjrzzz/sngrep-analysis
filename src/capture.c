@@ -74,6 +74,11 @@ void sigusr1_handler(int signum)
     sigusr1_received = 1;
 }
 
+// T1 instrumentation: forward declarations (defined near capture_launch_thread,
+// but capture_close() above them needs to call capture_stats_stop)
+static void capture_stats_start();
+static void capture_stats_stop();
+
 #if defined(WITH_ZLIB)
 static ssize_t
 gzip_cookie_write(void *cookie, const char *buf, size_t size)
