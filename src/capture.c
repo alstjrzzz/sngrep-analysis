@@ -84,9 +84,12 @@ static void capture_stats_stop();
 // on these, so plain counters are used. Sampled by the stats monitor into profile.csv.
 typedef struct { uint64_t ns; uint64_t count; } stage_prof_t;
 static stage_prof_t prof_reasm_ip, prof_reasm_tcp, prof_lockwait, prof_parse, prof_dump;
-static int prof_enabled = 0;
+int prof_enabled = 0;
+// T4 sub-stage: parse vs group time inside capture_packet_parse, incremented from sip.c
+uint64_t prof_sip_parse_ns = 0;
+uint64_t prof_sip_group_ns = 0;
 
-static inline uint64_t
+uint64_t
 prof_now_ns(void)
 {
     struct timespec ts;
@@ -1133,7 +1136,8 @@ capture_stats_monitor(void *none)
         pout = fopen(ppath, "w");
         if (pout) {
             fprintf(pout, "ts_unix_ms,elapsed_ms,reasm_ip_ns,reasm_ip_cnt,reasm_tcp_ns,"
-                          "reasm_tcp_cnt,lockwait_ns,parse_ns,parse_cnt,dump_ns,dump_cnt\n");
+                          "reasm_tcp_cnt,lockwait_ns,parse_ns,parse_cnt,dump_ns,dump_cnt,"
+                          "sip_parse_ns,sip_group_ns\n");
             fflush(pout);
         }
     }
@@ -1188,13 +1192,14 @@ capture_stats_monitor(void *none)
         fflush(out);
 
         if (pout) {
-            fprintf(pout, "%lld,%ld,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu\n",
+            fprintf(pout, "%lld,%ld,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu\n",
                     ts_ms, elapsed_ms,
                     (unsigned long long) prof_reasm_ip.ns,  (unsigned long long) prof_reasm_ip.count,
                     (unsigned long long) prof_reasm_tcp.ns, (unsigned long long) prof_reasm_tcp.count,
                     (unsigned long long) prof_lockwait.ns,
                     (unsigned long long) prof_parse.ns,     (unsigned long long) prof_parse.count,
-                    (unsigned long long) prof_dump.ns,      (unsigned long long) prof_dump.count);
+                    (unsigned long long) prof_dump.ns,      (unsigned long long) prof_dump.count,
+                    (unsigned long long) prof_sip_parse_ns, (unsigned long long) prof_sip_group_ns);
             fflush(pout);
         }
 

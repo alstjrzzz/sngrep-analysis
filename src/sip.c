@@ -36,6 +36,12 @@
 #include "option.h"
 #include "setting.h"
 #include "filter.h"
+#include "capture.h"   // T4: prof_enabled, prof_now_ns, prof_sip_parse_ns/prof_sip_group_ns
+
+// T4 sub-stage timing: bucket sip_check_packet work into parse vs group.
+// Each use is wrapped in its own block so the timer var name does not collide.
+#define PROF_T(v)        uint64_t v = prof_enabled ? prof_now_ns() : 0
+#define PROF_ADD(acc, v) do { if (prof_enabled) (acc) += prof_now_ns() - (v); } while (0)
 
 /**
  * @brief Linked list of parsed calls
@@ -382,8 +388,9 @@ sip_check_packet(packet_t *packet)
         return NULL;
     }
 
-    // Find the call for this msg
-    if (!(call = sip_find_by_callid(callid))) {
+    // Find the call for this msg [T4: group lookup]
+    { PROF_T(_tg); call = sip_find_by_callid(callid); PROF_ADD(prof_sip_group_ns, _tg); }
+    if (!call) {
 
         // Check if payload matches expression
         if (!sip_check_match_expression((const char*) payload))
@@ -424,27 +431,27 @@ sip_check_packet(packet_t *packet)
 
     // Always parse first call message
     if (call_msg_count(call) == 0) {
-        // Parse SIP payload
-        sip_parse_msg_payload(msg, payload);
+        // Parse SIP payload [T4: parse]
+        { PROF_T(_tp); sip_parse_msg_payload(msg, payload); PROF_ADD(prof_sip_parse_ns, _tp); }
         // If this call has X-Call-Id, append it to the parent call
         if (strlen(call->xcallid)) {
             call_add_xcall(sip_find_by_callid(call->xcallid), call);
         }
     }
 
-    // Add the message to the call
-    call_add_message(call, msg);
+    // Add the message to the call [T4: group]
+    { PROF_T(_tg); call_add_message(call, msg); PROF_ADD(prof_sip_group_ns, _tg); }
 
-    // check if message is a retransmission
-    call_msg_retrans_check(msg);
+    // check if message is a retransmission [T4: group]
+    { PROF_T(_tr); call_msg_retrans_check(msg); PROF_ADD(prof_sip_group_ns, _tr); }
 
     if (call_is_invite(call)) {
-        // Parse media data
-        sip_parse_msg_media(msg, payload);
-        // Update Call State
-        call_update_state(call, msg);
-        // Parse extra fields
-        sip_parse_extra_headers(msg, payload);
+        // Parse media data [T4: parse]
+        { PROF_T(_tm); sip_parse_msg_media(msg, payload); PROF_ADD(prof_sip_parse_ns, _tm); }
+        // Update Call State [T4: group]
+        { PROF_T(_tu); call_update_state(call, msg); PROF_ADD(prof_sip_group_ns, _tu); }
+        // Parse extra fields [T4: parse]
+        { PROF_T(_te); sip_parse_extra_headers(msg, payload); PROF_ADD(prof_sip_parse_ns, _te); }
         // Check if this call should be in active call list
         if (call_is_active(call)) {
             if (!sip_call_is_active(call)) {

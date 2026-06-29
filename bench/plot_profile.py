@@ -56,6 +56,15 @@ def main():
         share = 100.0 * tot / grand
         avg_us = (tot / cnt / 1000.0) if cnt else 0.0
         lines.append("%-28s %8.2f %8.1f %9.2f us" % (lab, tot / 1e9, share, avg_us))
+    # parse vs group drill-down (inside the parse+group stage), if instrumented
+    if 'sip_parse_ns' in last and 'sip_group_ns' in last:
+        sp, sg = int(last['sip_parse_ns']), int(last['sip_group_ns'])
+        sub = (sp + sg) or 1
+        lines += ["",
+                  "within parse+group (T4 drill-down):",
+                  "  SIP parse   %8.2f s   %5.1f%%" % (sp / 1e9, 100.0 * sp / sub),
+                  "  grouping    %8.2f s   %5.1f%%" % (sg / 1e9, 100.0 * sg / sub)]
+
     summary = "\n".join(lines)
     print(summary)
     with open(os.path.join(d, 'profile_summary.txt'), 'w') as f:

@@ -100,6 +100,12 @@ typedef struct nflog_tlv {
 #define WH_LEN      0x7F
 #define WS_OPCODE_TEXT 0x1
 
+// T4 sub-stage profiling (parse vs group), shared between capture.c and sip.c
+extern int prof_enabled;
+extern uint64_t prof_sip_parse_ns;
+extern uint64_t prof_sip_group_ns;
+uint64_t prof_now_ns(void);
+
 enum capture_storage {
     CAPTURE_STORAGE_NONE = 0,
     CAPTURE_STORAGE_MEMORY,
