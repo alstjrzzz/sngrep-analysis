@@ -32,6 +32,9 @@ UAC_PORT=${UAC_PORT:-5061}
 
 SYS_PID=""
 
+# epoch milliseconds (portable: some `date` builds ignore %3N and emit full ns)
+now_ms() { echo $(( $(date +%s%N) / 1000000 )); }
+
 command -v tmux >/dev/null || { echo "need tmux:  sudo apt install -y tmux"; exit 1; }
 command -v sipp >/dev/null || { echo "need sipp:  sudo apt install -y sip-tester"; exit 1; }
 command -v python3 >/dev/null || { echo "need python3"; exit 1; }
@@ -86,13 +89,13 @@ SYS_PID=$!
 ulimit -n 65535 2>/dev/null
 echo "ts_unix_ms,rate_cps" > "$OUT/stages.csv"
 for RATE in $RATES; do
-  echo "$(date +%s%3N),$RATE" >> "$OUT/stages.csv"
+  echo "$(now_ms),$RATE" >> "$OUT/stages.csv"
   echo ">>> rate=${RATE}cps for ${STAGE_SEC}s"
   timeout "${STAGE_SEC}s" sipp $UAC_ARGS "127.0.0.1:$UAS_PORT" -p "$UAC_PORT" \
       -r "$RATE" -rp 1000 -l "$MAX_CALLS" -nostdin >/dev/null 2>&1
   sleep "$GAP_SEC"
 done
-echo "$(date +%s%3N),done" >> "$OUT/stages.csv"
+echo "$(now_ms),done" >> "$OUT/stages.csv"
 
 sleep 1
 cleanup

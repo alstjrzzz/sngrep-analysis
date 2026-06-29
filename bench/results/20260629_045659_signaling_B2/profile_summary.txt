@@ -1,0 +1,7 @@
+stage                         total(s)   share%    avg/pkt
+-------------------------------------------------------------
+IP reasm                         1.55      1.7      1.98 us
+TCP reasm                        0.00      0.0      0.00 us
+lock wait (UI/contention)        7.34      8.2      9.48 us
+parse+group                     80.84     90.0    104.40 us
+dump                             0.12      0.1      0.18 us

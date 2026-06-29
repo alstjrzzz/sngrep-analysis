@@ -81,9 +81,16 @@ def main():
         axb.set_ylabel('RAM used (MB)')
         axb.legend(loc='upper right')
 
+    def norm_ms(ts):
+        # tolerate stage timestamps written in ns (older runs) vs ms (stats)
+        ts = int(ts)
+        while ts > t0 * 100:
+            ts //= 1000
+        return ts
+
     for s in stages:
         try:
-            x = rel(s['ts_unix_ms'])
+            x = (norm_ms(s['ts_unix_ms']) - t0) / 1000.0
         except (ValueError, KeyError):
             continue
         for a in ax:
