@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Plot T4 per-stage timing from profile.csv -> profile.png
+"""Summarize + plot T4 per-stage timing from profile.csv.
 
     python3 bench/plot_profile.py bench/results/<dir>
 
-Top panel: where the single capture thread spends time over the ramp (stacked
-per-interval milliseconds per stage). Bottom panel: overall share. If one stage
-(e.g. parse+group) dominates, that is what the new architecture must parallelize.
+Prints a table (total / share% / avg-per-packet) and writes:
+  - <dir>/profile_summary.txt  (the table)
+  - <dir>/profile.png          (stacked time over the ramp + share bar)
+
+If one stage (e.g. parse+group) dominates, that is what the new architecture
+must parallelize.
 """
 import sys
 import csv
@@ -14,12 +17,13 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+# label, ns column, count column (lock wait is charged per parse call)
 STAGES = [
-    ('reasm_ip_ns', 'IP reasm'),
-    ('reasm_tcp_ns', 'TCP reasm'),
-    ('lockwait_ns', 'lock wait (UI/contention)'),
-    ('parse_ns', 'parse+group'),
-    ('dump_ns', 'dump'),
+    ('IP reasm', 'reasm_ip_ns', 'reasm_ip_cnt'),
+    ('TCP reasm', 'reasm_tcp_ns', 'reasm_tcp_cnt'),
+    ('lock wait (UI/contention)', 'lockwait_ns', 'parse_cnt'),
+    ('parse+group', 'parse_ns', 'parse_cnt'),
+    ('dump', 'dump_ns', 'dump_cnt'),
 ]
 
 
@@ -38,38 +42,55 @@ def main():
         print("profile.csv too short")
         return
 
+    last = rows[-1]
+    totals = {lab: int(last[nsc]) for lab, nsc, _ in STAGES}
+    counts = {lab: int(last[cc]) for lab, _, cc in STAGES}
+    grand = sum(totals.values()) or 1
+
+    # --- text summary table ---
+    lines = ["stage                         total(s)   share%    avg/pkt",
+             "-------------------------------------------------------------"]
+    for lab, _, _ in STAGES:
+        tot = totals[lab]
+        cnt = counts[lab]
+        share = 100.0 * tot / grand
+        avg_us = (tot / cnt / 1000.0) if cnt else 0.0
+        lines.append("%-28s %8.2f %8.1f %9.2f us" % (lab, tot / 1e9, share, avg_us))
+    summary = "\n".join(lines)
+    print(summary)
+    with open(os.path.join(d, 'profile_summary.txt'), 'w') as f:
+        f.write(summary + "\n")
+
+    # --- plots ---
     t0 = int(rows[0]['ts_unix_ms'])
     t = [(int(r['ts_unix_ms']) - t0) / 1000.0 for r in rows[1:]]
-    series = {}
-    for key, _ in STAGES:
-        vals = []
-        for i in range(1, len(rows)):
-            vals.append(max(int(rows[i][key]) - int(rows[i - 1][key]), 0) / 1e6)  # ms
-        series[key] = vals
+    series = []
+    for lab, nsc, _ in STAGES:
+        vals = [max(int(rows[i][nsc]) - int(rows[i - 1][nsc]), 0) / 1e6 for i in range(1, len(rows))]
+        series.append(vals)
 
     fig, ax = plt.subplots(2, 1, figsize=(12, 8))
-    ax[0].stackplot(t, [series[k] for k, _ in STAGES], labels=[l for _, l in STAGES])
+    ax[0].stackplot(t, series, labels=[s[0] for s in STAGES])
     ax[0].set_ylabel('busy ms per interval')
     ax[0].set_xlabel('time (s)')
     ax[0].legend(loc='upper left', fontsize=8)
     ax[0].set_title('Capture-thread time breakdown - ' + os.path.basename(os.path.normpath(d)))
     ax[0].grid(True, alpha=.3)
 
-    last = rows[-1]
-    totals = [int(last[k]) for k, _ in STAGES]
-    s = sum(totals) or 1
-    labels = [l for _, l in STAGES]
-    pct = [100.0 * x / s for x in totals]
+    labels = [s[0] for s in STAGES]
+    pct = [100.0 * totals[l] / grand for l in labels]
     ax[1].barh(labels, pct, color='tab:blue')
-    ax[1].set_xlabel('% of total stage time (cumulative)')
-    for i, x in enumerate(pct):
-        ax[1].text(x, i, ' %.1f%%' % x, va='center', fontsize=8)
+    ax[1].set_xlabel('% of total stage time')
+    for i, l in enumerate(labels):
+        cnt = counts[l]
+        avg_us = (totals[l] / cnt / 1000.0) if cnt else 0.0
+        ax[1].text(pct[i], i, '  %.1f%%  (%.1f us/pkt)' % (pct[i], avg_us), va='center', fontsize=8)
     ax[1].grid(True, axis='x', alpha=.3)
 
     fig.tight_layout()
     out = os.path.join(d, 'profile.png')
     fig.savefig(out, dpi=110)
-    print("wrote", out)
+    print("wrote", out, "and profile_summary.txt")
 
 
 if __name__ == '__main__':
