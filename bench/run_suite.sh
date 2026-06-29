@@ -38,6 +38,9 @@ run SCENARIO=rtp RATES="100 300 600 1000"
 run SCENARIO=hold HOLD_MS=30000 RATES="100 300 600 1000"
 run SCENARIO=hold HOLD_MS=60000 RATES="100 300 600 1000"
 
+# --- T4: profiled baseline (per-stage timing of the capture thread) ---
+run PROFILE=1 SCENARIO=signaling
+
 echo
 echo "================ ALL RUNS DONE ================"
 
@@ -45,6 +48,7 @@ echo "================ ALL RUNS DONE ================"
 if command -v python3 >/dev/null && python3 -c 'import matplotlib' 2>/dev/null; then
   for d in bench/results/*/; do
     [ -f "$d/stats.csv" ] && python3 bench/plot.py "$d"
+    [ -f "$d/profile.csv" ] && python3 bench/plot_profile.py "$d"
   done
 fi
 [ -n "${SUDO_USER:-}" ] && chown -R "$SUDO_USER":"$SUDO_USER" bench/results 2>/dev/null

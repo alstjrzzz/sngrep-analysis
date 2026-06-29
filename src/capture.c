@@ -79,6 +79,21 @@ void sigusr1_handler(int signum)
 static void capture_stats_start();
 static void capture_stats_stop();
 
+// T4 instrumentation: per-stage timing accumulators. parse_packet runs on the
+// capture thread(s); for a single capture source (e.g. lo) there is no contention
+// on these, so plain counters are used. Sampled by the stats monitor into profile.csv.
+typedef struct { uint64_t ns; uint64_t count; } stage_prof_t;
+static stage_prof_t prof_reasm_ip, prof_reasm_tcp, prof_lockwait, prof_parse, prof_dump;
+static int prof_enabled = 0;
+
+static inline uint64_t
+prof_now_ns(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t) ts.tv_sec * 1000000000ULL + ts.tv_nsec;
+}
+
 #if defined(WITH_ZLIB)
 static ssize_t
 gzip_cookie_write(void *cookie, const char *buf, size_t size)
@@ -108,6 +123,9 @@ capture_init(size_t limit, bool rtp_capture, bool rotate, size_t pcap_buffer_siz
     capture_cfg.rotate = rotate;
     capture_cfg.paused = 0;
     capture_cfg.sources = vector_create(1, 1);
+
+    // T4: enable per-stage profiling if requested (keeps T1 drop runs overhead-free)
+    prof_enabled = (getenv("SNGREP_PROFILE") != NULL);
 
     // set up SIGUSR1 signal handler for pcap dump file rotation
     // the handler will be served by any of the running threads
@@ -368,8 +386,11 @@ parse_packet(u_char *info, const struct pcap_pkthdr *header, const u_char *packe
     // Copy packet payload
     memcpy(data, packet, header->caplen);
 
-    // Check if we have a complete IP packet
-    if (!(pkt = capture_packet_reasm_ip(capinfo, header, data, &size_payload, &size_capture)))
+    // Check if we have a complete IP packet [T4: time IP reassembly stage]
+    uint64_t _t_ip = prof_enabled ? prof_now_ns() : 0;
+    pkt = capture_packet_reasm_ip(capinfo, header, data, &size_payload, &size_capture);
+    if (prof_enabled) { prof_reasm_ip.ns += prof_now_ns() - _t_ip; prof_reasm_ip.count++; }
+    if (!pkt)
         return;
 
     // Only interested in UDP packets
@@ -439,8 +460,11 @@ parse_packet(u_char *info, const struct pcap_pkthdr *header, const u_char *packe
         packet_set_type(pkt, PACKET_SIP_TCP);
         packet_set_payload(pkt, payload, size_payload);
 
-        // Create a structure for this captured packet
-        if (!(pkt = capture_packet_reasm_tcp(capinfo, pkt, tcp, payload, size_payload)))
+        // Create a structure for this captured packet [T4: time TCP reassembly stage]
+        uint64_t _t_tcp = prof_enabled ? prof_now_ns() : 0;
+        pkt = capture_packet_reasm_tcp(capinfo, pkt, tcp, payload, size_payload);
+        if (prof_enabled) { prof_reasm_tcp.ns += prof_now_ns() - _t_tcp; prof_reasm_tcp.count++; }
+        if (!pkt)
             return;
 
 #if defined(WITH_GNUTLS) || defined(WITH_OPENSSL)
@@ -460,15 +484,23 @@ parse_packet(u_char *info, const struct pcap_pkthdr *header, const u_char *packe
 
     // Avoid parsing from multiples sources.
     // Avoid parsing while screen in being redrawn
+    // [T4: time blocked acquiring the lock = UI/display + cross-source contention]
+    uint64_t _t_lw = prof_enabled ? prof_now_ns() : 0;
     capture_lock();
-    // Check if we can handle this packet
-    if (capture_packet_parse(pkt) == 0) {
+    if (prof_enabled) prof_lockwait.ns += prof_now_ns() - _t_lw;
+    // Check if we can handle this packet [T4: time parse + grouping stage]
+    uint64_t _t_p = prof_enabled ? prof_now_ns() : 0;
+    int _parsed = capture_packet_parse(pkt);
+    if (prof_enabled) { prof_parse.ns += prof_now_ns() - _t_p; prof_parse.count++; }
+    if (_parsed == 0) {
 #ifdef USE_EEP
         // Send this packet through eep
         capture_eep_send(pkt);
 #endif
-        // Store this packets in output file
-        capture_dump_packet(pkt);;
+        // Store this packets in output file [T4: time dump stage]
+        uint64_t _t_d = prof_enabled ? prof_now_ns() : 0;
+        capture_dump_packet(pkt);
+        if (prof_enabled) { prof_dump.ns += prof_now_ns() - _t_d; prof_dump.count++; }
         // If storage is disabled, delete frames payload
         if (capture_cfg.storage == 0) {
             packet_free_frames(pkt);
@@ -1092,6 +1124,20 @@ capture_stats_monitor(void *none)
     fprintf(out, "ts_unix_ms,elapsed_ms,source,recv,drop,ifdrop,d_recv,d_drop,d_ifdrop,drop_pct\n");
     fflush(out);
 
+    // T4: optional per-stage timing profile (cumulative ns + call counts)
+    FILE *pout = NULL;
+    if (prof_enabled) {
+        const char *ppath = getenv("SNGREP_PROFILE_CSV");
+        if (!ppath)
+            ppath = "/dev/shm/sngrep_profile.csv";
+        pout = fopen(ppath, "w");
+        if (pout) {
+            fprintf(pout, "ts_unix_ms,elapsed_ms,reasm_ip_ns,reasm_ip_cnt,reasm_tcp_ns,"
+                          "reasm_tcp_cnt,lockwait_ns,parse_ns,parse_cnt,dump_ns,dump_cnt\n");
+            fflush(pout);
+        }
+    }
+
     int nsrc = vector_count(capture_cfg.sources);
     if (nsrc < 1)
         nsrc = 1;
@@ -1141,10 +1187,23 @@ capture_stats_monitor(void *none)
         }
         fflush(out);
 
+        if (pout) {
+            fprintf(pout, "%lld,%ld,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu\n",
+                    ts_ms, elapsed_ms,
+                    (unsigned long long) prof_reasm_ip.ns,  (unsigned long long) prof_reasm_ip.count,
+                    (unsigned long long) prof_reasm_tcp.ns, (unsigned long long) prof_reasm_tcp.count,
+                    (unsigned long long) prof_lockwait.ns,
+                    (unsigned long long) prof_parse.ns,     (unsigned long long) prof_parse.count,
+                    (unsigned long long) prof_dump.ns,      (unsigned long long) prof_dump.count);
+            fflush(pout);
+        }
+
         struct timespec req = { interval_ms / 1000, (interval_ms % 1000) * 1000000L };
         nanosleep(&req, NULL);
     }
 
+    if (pout)
+        fclose(pout);
     fclose(out);
     sng_free(prev_recv);
     sng_free(prev_drop);

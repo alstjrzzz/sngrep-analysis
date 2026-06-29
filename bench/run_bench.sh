@@ -25,6 +25,7 @@ STAGE_SEC=${STAGE_SEC:-25}
 GAP_SEC=${GAP_SEC:-3}
 BUFFER_MB=${BUFFER_MB:-2}              # sngrep -B, the kernel capture ring buffer (default 2)
 INTERVAL_MS=${INTERVAL_MS:-250}
+PROFILE=${PROFILE:-0}                 # 1 = enable T4 per-stage profiling (profile.csv)
 UAS_PORT=${UAS_PORT:-5060}
 UAC_PORT=${UAC_PORT:-5061}
 
@@ -39,15 +40,23 @@ SNG_RTP=""
 case "$SCENARIO" in
   signaling) UAC_ARGS="-sn uac -d 0" ;;
   hold)      UAC_ARGS="-sn uac -d $HOLD_MS" ;;
-  rtp)       UAC_ARGS="-sn uac_pcap" ; SNG_RTP="-r" ;;   # needs SIPp media pcap; sngrep captures RTP too
+  rtp)
+    # self-contained RTP: generate the media pcap once, use our custom scenario,
+    # and tell sngrep to capture RTP too (-r)
+    [ -f bench/media/rtp_pcmu.pcap ] || python3 bench/media/gen_rtp_pcap.py bench/media/rtp_pcmu.pcap
+    UAC_ARGS="-sf bench/scenarios/uac_rtp.xml"
+    SNG_RTP="-r" ;;
   *) echo "unknown SCENARIO=$SCENARIO (signaling|hold|rtp)"; exit 1 ;;
 esac
 
 TS=$(date +%Y%m%d_%H%M%S)
 OUT="bench/results/${TS}_${SCENARIO}_B${BUFFER_MB}"
 mkdir -p "$OUT"
-echo "scenario=$SCENARIO rates='$RATES' stage=${STAGE_SEC}s buffer=${BUFFER_MB}MB iface=$IFACE rtp=${SNG_RTP:-no}" \
+echo "scenario=$SCENARIO rates='$RATES' stage=${STAGE_SEC}s buffer=${BUFFER_MB}MB iface=$IFACE rtp=${SNG_RTP:-no} profile=$PROFILE" \
   | tee "$OUT/config.txt"
+
+PROF_ENV=""
+[ "$PROFILE" = "1" ] && PROF_ENV="SNGREP_PROFILE=1 SNGREP_PROFILE_CSV=$PWD/$OUT/profile.csv"
 
 cleanup() {
   [ -n "$SYS_PID" ] && kill "$SYS_PID" 2>/dev/null
@@ -59,7 +68,7 @@ trap cleanup EXIT INT TERM
 # 1) sngrep in a detached tmux pane (real ncurses workload, but scriptable)
 tmux kill-session -t sng_bench 2>/dev/null
 tmux new-session -d -s sng_bench -x 220 -y 50 \
-  "SNGREP_STATS_CSV=$PWD/$OUT/stats.csv SNGREP_STATS_INTERVAL_MS=$INTERVAL_MS $SNGREP -d $IFACE -B $BUFFER_MB -l 5000 -R $SNG_RTP"
+  "$PROF_ENV SNGREP_STATS_CSV=$PWD/$OUT/stats.csv SNGREP_STATS_INTERVAL_MS=$INTERVAL_MS $SNGREP -d $IFACE -B $BUFFER_MB -l 5000 -R $SNG_RTP"
 sleep 3
 [ -f "$OUT/stats.csv" ] || echo "WARN: stats.csv missing - sngrep may have failed. Debug: tmux attach -t sng_bench"
 
@@ -91,3 +100,4 @@ trap - EXIT INT TERM
 echo
 echo "Done. Results: $OUT"
 echo "Plot:  python3 bench/plot.py $OUT"
+[ "$PROFILE" = "1" ] && echo "Profile: python3 bench/plot_profile.py $OUT"
