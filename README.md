@@ -3,24 +3,17 @@
 고트래픽 환경에서 sngrep이 패킷을 드롭하는지, 드롭한다면 어디서 드롭하는지를 실측하는
 sngrep 포크다.
 
+sngrep은 캡처 스레드 하나에서 한 패킷의 캡처, 파싱, 그룹화를 pcap_loop 콜백 안에서 순서대로
+처리하고(src/capture.c의 parse_packet), 화면 표시는 별도 스레드가 capture_cfg.lock을 공유하며
+맡는다. 콜백이 리턴해야 다음 패킷을 꺼내므로, 처리가 도착 속도를 못 따라가면 커널 캡처
+링버퍼가 넘쳐 드롭이 날 수 있다(pcap_stats의 ps_drop). 이 단일 스레드 처리가 병목으로 의심돼,
+어디서 얼마나 드롭하고 그 스레드가 어디에 시간을 쓰는지 보려고 측정 코드를 달았다.
+
 원본은 irontec/sngrep (GPLv3, https://github.com/irontec/sngrep) 이다. 빌드와 사용에 대한
 일반 문서는 원본 README와 wiki(https://github.com/irontec/sngrep/wiki)를 참고하면 된다.
 이 저장소는 거기에 측정 코드와 측정 자동화 스크립트를 더한 것이다.
 
-## 1. 드롭이 나는 지점
-
-sngrep은 libpcap으로 패킷을 캡처하고, 한 패킷의 캡처, 파싱, 그룹화를 캡처 스레드 하나에서
-순서대로 처리한다. src/capture.c의 parse_packet이 pcap_loop 콜백 안에서 이 단계들을 동기
-실행한다. 이 콜백이 리턴해야 다음 패킷을 꺼내므로, 한 패킷 처리가 무거우면 그동안 커널 캡처
-링버퍼가 비워지지 않고 넘친다. 드롭은 거의 항상 이 링버퍼에서 발생한다.
-
-측정 대상은 이 링버퍼 드롭, 즉 pcap_stats의 ps_drop 값이다.
-
-화면 표시는 별도 스레드(메인 스레드의 ncurses 루프)가 맡는다. 캡처 스레드와 표시 스레드는
-capture_cfg.lock 하나를 공유하므로, 표시가 화면을 갱신하는 동안에는 캡처 스레드가 그 락을
-기다린다.
-
-## 2. 추가한 코드
+## 1. 추가한 코드
 
 포크 이후 추가하거나 수정한 코드는 다음과 같다. 측정 자동화 스크립트는 bench/ 한곳에 모여
 있고, 그 외에는 sngrep 본체 세 파일에 측정 코드를 넣었다. 본체에 넣은 측정 코드는 원래 처리
@@ -35,7 +28,7 @@ capture.c와 sip.c에 흩어져 있다. 대신 모두 주석으로 표시해 원
 | src/sip.c | 단계별 시간 측정 | 위 "파싱+그룹화" 단계를 파싱(SIP 텍스트에서 필드 추출)과 그룹화(패킷을 해당 통화에 연결) 둘로 나눠 따로 잰다. |
 | bench/ | 측정 자동화 | sngrep, SIPp(통화 발생기), CPU/RAM 샘플러를 한 번에 돌리고 결과를 그래프로 만든다. 자세한 사용법은 bench/README.md 참고. |
 
-## 3. 환경과 리소스
+## 2. 환경과 리소스
 
 OS는 Linux가 필수다. (sngrep은 POSIX 전용이라 Windows 네이티브 빌드가 안 된다.) 측정은
 Ubuntu VM에서 한다.
@@ -58,7 +51,7 @@ sudo apt install -y git build-essential autoconf automake libtool pkg-config \
 sudo apt install -y tmux sip-tester python3-matplotlib sysstat
 ```
 
-## 4. 테스트 구성
+## 3. 테스트 구성
 
 통화 발생률(초당 통화 수, cps)을 단계적으로 올리는 것을 기본 축으로 두고, 아래 차원을
 바꿔가며 측정한다. 매 실행마다 ps_drop과 ps_ifdrop, 코어별 CPU, RAM이 같은 시간축에
@@ -87,7 +80,7 @@ SIPp 미디어를 쓴다.
 - T5, 표시와 캡처 스레드의 락 경합: capture_cfg.lock 대기시간(예정).
 - T6, 링버퍼를 키우면 막히는가: BUFFER_MB 스윕.
 
-## 5. 실행
+## 4. 실행
 
 ```bash
 ./bootstrap.sh && ./configure && make -j$(nproc)   # 측정 코드 포함 빌드
@@ -104,7 +97,7 @@ sudo SCENARIO=rtp  RATES="100 1000 3000" ./bench/run_bench.sh
 sudo BUFFER_MB=16  ./bench/run_bench.sh
 ```
 
-## 6. 결과 해석
+## 5. 결과 해석
 
 report.png는 3단 그래프다.
 
@@ -113,7 +106,7 @@ report.png는 3단 그래프다.
 3. CPU(전체와 코어별)와 RAM. 한 코어만 100%면 sngrep 단일 스레드 한계이고(자원 탓이
    아님), 전 코어가 100%면 CPU 경합의 영향이며, RAM이 평평하면 메모리는 무관하다.
 
-## 7. 현재까지 결과
+## 6. 현재까지 결과
 
 전체 측정 결과 리포트는 RESULTS.md에 있다. 요약하면,
 
@@ -122,6 +115,6 @@ report.png는 3단 그래프다.
   본다.
 - T4: 캡처 스레드 시간의 90%가 파싱과 그룹화다(패킷당 약 104µs). 파싱 병렬화를 정당화한다.
 
-## 8. 라이선스
+## 7. 라이선스
 
 원본 sngrep과 같이 GPLv3다 (COPYING, LICENSE). irontec/sngrep의 포크다.

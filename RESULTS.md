@@ -1,7 +1,7 @@
 # 측정 결과 리포트
 
 sngrep 캡처 드롭 가설의 실측 결과다. 환경과 방법은 [README](README.md), 도구 사용법은
-[bench/README.md](bench/README.md)를 참고하면 된다. 아래 T1~T6은 README 4장에 정의한 측정
+[bench/README.md](bench/README.md)를 참고하면 된다. 아래 T1~T6은 README 3장에 정의한 측정
 항목이다.
 
 측정 환경은 Ubuntu 26.04 VM (4 vCPU / 4GB), VirtualBox, 호스트 i5-1335U/16GB다.
