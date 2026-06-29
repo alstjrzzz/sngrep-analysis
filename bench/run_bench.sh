@@ -26,6 +26,7 @@ GAP_SEC=${GAP_SEC:-3}
 BUFFER_MB=${BUFFER_MB:-2}              # sngrep -B, the kernel capture ring buffer (default 2)
 INTERVAL_MS=${INTERVAL_MS:-250}
 PROFILE=${PROFILE:-0}                 # 1 = enable T4 per-stage profiling (profile.csv)
+MAX_CALLS=${MAX_CALLS:-2000}          # SIPp -l: cap concurrent calls so hold/rtp don't OOM the VM
 UAS_PORT=${UAS_PORT:-5060}
 UAC_PORT=${UAC_PORT:-5061}
 
@@ -88,7 +89,7 @@ for RATE in $RATES; do
   echo "$(date +%s%3N),$RATE" >> "$OUT/stages.csv"
   echo ">>> rate=${RATE}cps for ${STAGE_SEC}s"
   timeout "${STAGE_SEC}s" sipp $UAC_ARGS "127.0.0.1:$UAS_PORT" -p "$UAC_PORT" \
-      -r "$RATE" -rp 1000 -nostdin >/dev/null 2>&1
+      -r "$RATE" -rp 1000 -l "$MAX_CALLS" -nostdin >/dev/null 2>&1
   sleep "$GAP_SEC"
 done
 echo "$(date +%s%3N),done" >> "$OUT/stages.csv"
