@@ -1,10 +1,10 @@
-# bench: sngrep 캡처 드롭 측정 하네스
+# bench: sngrep 캡처 드롭 측정 자동화 스크립트
 
-T1 측정용 자동화 장치다. sngrep이 부하에서 패킷을 드롭하는지, 드롭한다면 어디서(커널 캡처
-링버퍼 ps_drop인지, NIC ps_ifdrop인지), 그리고 호스트 CPU/RAM이 한계인지를 본다.
+sngrep이 부하에서 패킷을 드롭하는지, 드롭한다면 어디서(커널 캡처 링버퍼 ps_drop인지, NIC
+ps_ifdrop인지), 그리고 호스트 CPU/RAM이 한계인지를 측정한다.
 
 드롭 수치는 이 포크에 컴파일돼 들어간 pcap_stats 샘플러 스레드(src/capture.c)에서 나온다.
-샘플러는 소스별 CSV를 쓰고, 이 하네스는 거기에 부하를 걸면서 CPU/RAM을 같은 시간축에
+샘플러는 소스별 CSV를 쓰고, 이 스크립트는 거기에 부하를 걸면서 CPU/RAM을 같은 시간축에
 기록한다.
 
 ## 의존성 (Ubuntu)
