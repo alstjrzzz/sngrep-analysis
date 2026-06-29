@@ -59,11 +59,13 @@ def main():
     # parse vs group drill-down (inside the parse+group stage), if instrumented
     if 'sip_parse_ns' in last and 'sip_group_ns' in last:
         sp, sg = int(last['sip_parse_ns']), int(last['sip_group_ns'])
-        sub = (sp + sg) or 1
+        stage = totals['parse+group'] or 1
+        other = max(stage - sp - sg, 0)
         lines += ["",
-                  "within parse+group (T4 drill-down):",
-                  "  SIP parse   %8.2f s   %5.1f%%" % (sp / 1e9, 100.0 * sp / sub),
-                  "  grouping    %8.2f s   %5.1f%%" % (sg / 1e9, 100.0 * sg / sub)]
+                  "within parse+group stage (%.1fs) [%% of full stage]:" % (stage / 1e9),
+                  "  SIP parse   %8.2f s   %5.1f%%" % (sp / 1e9, 100.0 * sp / stage),
+                  "  grouping    %8.2f s   %5.1f%%" % (sg / 1e9, 100.0 * sg / stage),
+                  "  other       %8.2f s   %5.1f%%" % (other / 1e9, 100.0 * other / stage)]
 
     summary = "\n".join(lines)
     print(summary)

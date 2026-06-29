@@ -371,8 +371,10 @@ sip_check_packet(packet_t *packet)
     memset(payload, 0, MAX_SIP_PAYLOAD);
     memcpy(payload, packet_payload(packet), packet_payloadlen(packet));
 
-    // Get the Call-ID of this message
-    if (!sip_get_callid((const char*) payload, callid))
+    // Get the Call-ID of this message [T4: parse - regex, runs per packet]
+    char *_cid;
+    { PROF_T(_tc); _cid = sip_get_callid((const char*) payload, callid); PROF_ADD(prof_sip_parse_ns, _tc); }
+    if (!_cid)
         return NULL;
 
     // Create a new message from this data
@@ -382,7 +384,9 @@ sip_check_packet(packet_t *packet)
     // Get Method and request for the following checks
     // There is no need to parse all payload at this point
     // If no response or request code is found, this is not a SIP message
-    if (!sip_get_msg_reqresp(msg, payload)) {
+    int _rr;
+    { PROF_T(_trr); _rr = sip_get_msg_reqresp(msg, payload); PROF_ADD(prof_sip_parse_ns, _trr); }
+    if (!_rr) {
         // Deallocate message memory
         msg_destroy(msg);
         return NULL;
