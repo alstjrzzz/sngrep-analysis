@@ -36,16 +36,11 @@ capture.c와 sip.c에 흩어져 있다. 대신 모두 주석으로 표시해 원
 | vCPU | 2 이상 | 4 |
 | RAM | 4GB 이상 | 4GB |
 | 디스크 | 25GB 이상 | 25GB |
-| 가상화 | — | VirtualBox |
-| 호스트 | — | i5-1335U(10C/12T) / 16GB |
 
-- **Linux**: sngrep이 POSIX 전용이라 Windows에서는 빌드되지 않고, 측정 자동화 스크립트가
-  apt·sip-tester·sysstat 등 리눅스 도구에 의존한다. Ubuntu에서 검증했다.
-- **vCPU 2 이상**: 핵심 관찰("코어가 남는데도 드롭")은 sngrep의 단일 스레드가 한 코어를
-  포화시키는 동안 다른 코어가 노는 것을 봐야 성립하므로 코어가 둘 이상 필요하다.
-- **RAM 4GB**: sngrep을 캡처 한도(-l)와 로테이트(-R)로 제한해 메모리를 묶어 쓰므로 충분하다.
-- **단일 VM + lo**: 발신(SIPp UAC)·수신(SIPp UAS)·캡처(sngrep)를 한 머신에 모으고 트래픽을
-  루프백(lo)으로만 흘려, 호스트 NIC 병목을 측정에서 제거한다.
+sngrep이 POSIX 전용이라 Windows에서는 빌드되지 않는다. 자동화 스크립트가 의존 패키지를 apt로
+설치하므로 데비안 계열인 Ubuntu에서 측정한다.
+
+트래픽은 루프백(lo)으로만 흘려 호스트 NIC 병목을 측정에서 제거한다.
 
 ## 3. 테스트 구성
 
@@ -60,43 +55,43 @@ capture.c와 sip.c에 흩어져 있다. 대신 모두 주석으로 표시해 원
 | 통화 유지 시간 | 0 / 30s / 60s | 동시 통화 수·메모리·RTP 볼륨 변화 |
 | 커널 링버퍼 크기 | 2 / 16 / 64 MB | 버퍼 크기와 드롭의 관계 |
 
-표의 "PPS 지점"은 통화 수와 연결된다. 통화당 SIP 메시지가 약 7개라 pps ≈ cps × 7이다.
+### 테스트 단계
 
-### 측정 항목
+T는 test를 뜻하고, 결과(5장)와 RESULTS.md가 같은 번호를 쓴다.
 
-변수를 쓸어가며 답하려는 질문이다(변수 표가 입력이라면 이쪽은 그 입력으로 확인할 항목).
-결과 요약(5장)과 전체 리포트(RESULTS.md)가 이 번호를 그대로 쓴다.
-
-- T1, 드롭 발생 여부와 위치 — signaling 시나리오(기본 -B 2)에서 커널 캡처 링버퍼 드롭과
+- T1, 드롭 발생 여부와 위치: signaling 시나리오(기본 -B 2)에서 커널 캡처 링버퍼 드롭과
   NIC 드롭을 구분한다.
-- T2, 뒷단 역압 여부 — 콜백 처리시간(추가 측정 예정)과 드롭 시점을 비교한다.
-- T3, 드롭의 시간 양상 — 트래픽 패턴(즉시 끊기 vs 유지)을 비교해 스파이크와 추세를 가른다.
-- T4, 파싱 병목 — 단계별 시간을 측정한다.
-- T5, 표시·캡처 스레드 락 경합 — 락 대기시간을 측정한다(예정).
-- T6, 링버퍼 확장의 드롭 완화 효과 — BUFFER_MB를 스윕한다.
+- T2, 뒷단 역압 여부: 콜백 처리시간(추가 측정 예정)과 드롭 시점을 비교한다.
+- T3, 드롭의 시간 양상: 트래픽 패턴(즉시 끊기 vs 유지)을 비교해 스파이크와 추세를 가른다.
+- T4, 파싱 병목: 단계별 시간을 측정한다.
+- T5, 표시·캡처 스레드 락 경합: 락 대기시간을 측정한다(예정).
+- T6, 링버퍼 확장의 드롭 완화 효과: BUFFER_MB를 스윕한다.
 
 ## 4. 실행
 
-의존성:
+패키지 설치:
 
 ```bash
-# 빌드
 sudo apt install -y git build-essential autoconf automake libtool pkg-config \
-    libpcap-dev libncurses-dev
-# 측정 자동화 스크립트
-sudo apt install -y tmux sip-tester python3-matplotlib sysstat
+    libpcap-dev libncurses-dev                                   # 빌드
+sudo apt install -y tmux sip-tester python3-matplotlib sysstat   # 측정 자동화
 ```
 
-빌드하고 측정한다:
+빌드:
 
 ```bash
-./bootstrap.sh && ./configure && make -j$(nproc)   # 측정 코드 포함 빌드
-sudo ./bench/run_bench.sh                           # 기본 signaling 측정
-sudo chown -R $USER:$USER bench/results
-python3 bench/plot.py bench/results/<run_dir>       # report.png 생성
+./bootstrap.sh && ./configure && make -j$(nproc)
 ```
 
-다른 변수로 측정하는 예:
+기본 signaling 측정과 그래프 생성:
+
+```bash
+sudo ./bench/run_bench.sh
+sudo chown -R $USER:$USER bench/results
+python3 bench/plot.py bench/results/<run_dir>
+```
+
+시나리오와 버퍼를 바꿔 측정:
 
 ```bash
 sudo SCENARIO=hold HOLD_MS=30000 ./bench/run_bench.sh
@@ -106,16 +101,14 @@ sudo BUFFER_MB=16  ./bench/run_bench.sh
 
 ## 5. 결과
 
-`bench/plot.py`가 그리는 report.png는 received/dropped pps, 누적 드롭 비율, CPU·RAM의 3단
-그래프다. 핵심 결론만 요약하면,
+report.png는 received/dropped pps, 누적 드롭 비율, CPU·RAM의 3단 그래프다. 핵심 결론은 다음과 같다.
 
-- **드롭한다** — 부하에서 전부 커널 캡처 링버퍼(ps_drop) 드롭, NIC 드롭은 0. 버퍼를 64MB로
-  키워도 지속 드롭(T1, T6).
-- **자원 탓이 아니다** — 코어가 남고 RAM도 여유인데 드롭 → 단일 스레드 한계(T1).
-- **병목은 파싱** — 캡처 스레드 시간의 90%가 파싱+그룹화, 그 중 파싱이 약 73%. 파싱 병렬화를
-  정당화한다(T4).
+- 부하에서 전부 커널 캡처 링버퍼(ps_drop)에서 드롭하고 NIC 드롭은 0이다. 버퍼를 64MB로
+  키워도 지속 드롭한다(T1, T6).
+- 코어가 남고 RAM도 여유인데 드롭하므로 단일 스레드 한계다(T1).
+- 캡처 스레드 시간의 90%가 파싱+그룹화이고 그 중 파싱이 약 73%다. 파싱 병렬화를 정당화한다(T4).
 
-수치·그래프 해석·RTP까지 전체 리포트는 [RESULTS.md](RESULTS.md) 참고.
+수치, 그래프 해석, RTP까지 전체 리포트는 [RESULTS.md](RESULTS.md)에 있다.
 
 ## 6. 라이선스
 
