@@ -1,0 +1,2 @@
+scenario=signaling rates='100 500 1000 2000 4000 8000' stage=25s buffer=2MB iface=lo rtp=no profile=0
+pinning: sngrep=0 uas=1 uac=2,3

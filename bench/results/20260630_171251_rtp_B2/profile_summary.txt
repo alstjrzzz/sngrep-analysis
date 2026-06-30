@@ -1,0 +1,13 @@
+stage                         total(s)   share%    avg/pkt
+-------------------------------------------------------------
+IP reasm                         3.31     11.7      0.60 us
+TCP reasm                        0.00      0.0      0.00 us
+lock wait (UI/contention)        3.36     11.9      1.18 us
+SIP parse                        9.86     34.8      3.46 us
+grouping                         2.17      7.7      0.76 us
+other                            8.72     30.8      3.06 us
+dump                             0.89      3.1      0.31 us
+
+per-packet cost by type (full parse path):
+  SIP     58.37 us/pkt  (n=170329)
+  RTP      3.22 us/pkt  (n=2663350)

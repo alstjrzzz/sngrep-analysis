@@ -1,0 +1,2 @@
+scenario=rtp rates='100 300 600 1000' stage=25s buffer=2MB iface=lo rtp=-r profile=1
+pinning: sngrep=0 uas=1 uac=2,3
