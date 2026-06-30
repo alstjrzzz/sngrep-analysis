@@ -71,16 +71,27 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+# Optional CPU pinning (PIN=1): keep the load generator off sngrep's cores so
+# SIPp cannot starve sngrep's single capture thread (isolates that confound).
+# 4-core layout: sngrep -> cores 0,1 ; SIPp UAS -> core 2 ; SIPp UAC -> core 3.
+SNG_PIN=""; UAS_PIN=""; UAC_PIN=""
+if [ "${PIN:-0}" = "1" ] && command -v taskset >/dev/null; then
+  SNG_PIN="taskset -c 0,1"
+  UAS_PIN="taskset -c 2"
+  UAC_PIN="taskset -c 3"
+  echo "pinning: sngrep=0,1 uas=2 uac=3" | tee -a "$OUT/config.txt"
+fi
+
 # 1) sngrep in a detached tmux pane (real ncurses workload, but scriptable)
 tmux kill-session -t sng_bench 2>/dev/null
 tmux new-session -d -s sng_bench -x 220 -y 50 \
-  "$PROF_ENV SNGREP_STATS_CSV=$PWD/$OUT/stats.csv SNGREP_STATS_INTERVAL_MS=$INTERVAL_MS $SNGREP -d $IFACE -B $BUFFER_MB -l 5000 -R $SNG_RTP"
+  "$PROF_ENV SNGREP_STATS_CSV=$PWD/$OUT/stats.csv SNGREP_STATS_INTERVAL_MS=$INTERVAL_MS $SNG_PIN $SNGREP -d $IFACE -B $BUFFER_MB -l 5000 -R $SNG_RTP"
 sleep 3
 [ -f "$OUT/stats.csv" ] || echo "WARN: stats.csv missing - sngrep may have failed. Debug: tmux attach -t sng_bench"
 
 # 2) SIPp UAS in a detached tmux pane
 tmux kill-session -t uas_bench 2>/dev/null
-tmux new-session -d -s uas_bench "sipp -sn uas -p $UAS_PORT"
+tmux new-session -d -s uas_bench "$UAS_PIN sipp -sn uas -p $UAS_PORT"
 sleep 1
 
 # 3) per-core CPU + RAM sampler, and per-process CPU sampler (sngrep vs sipp)
@@ -95,7 +106,7 @@ echo "ts_unix_ms,rate_cps" > "$OUT/stages.csv"
 for RATE in $RATES; do
   echo "$(now_ms),$RATE" >> "$OUT/stages.csv"
   echo ">>> rate=${RATE}cps for ${STAGE_SEC}s"
-  timeout "${STAGE_SEC}s" sipp $UAC_ARGS "127.0.0.1:$UAS_PORT" -p "$UAC_PORT" \
+  timeout "${STAGE_SEC}s" $UAC_PIN sipp $UAC_ARGS "127.0.0.1:$UAS_PORT" -p "$UAC_PORT" \
       -r "$RATE" -rp 1000 -l "$MAX_CALLS" -nostdin >/dev/null 2>&1
   sleep "$GAP_SEC"
 done
