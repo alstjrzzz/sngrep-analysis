@@ -5,7 +5,7 @@
 
 Prints a table (total / share% / avg-per-packet) and writes:
   - <dir>/profile_summary.txt  (the table)
-  - <dir>/profile.png          (busy ms over the ramp + share bar)
+  - <dir>/profile.png          (per-stage share bar)
 
 The parse+group stage is split into SIP parse vs grouping when the run carries
 the sub-timers (sip_parse_ns / sip_group_ns). Whichever stage dominates is what
@@ -28,7 +28,7 @@ def build_stages(header):
             ('lock wait (UI/contention)', 'lockwait_ns', 'parse_cnt'),
             ('SIP parse', 'sip_parse_ns', 'parse_cnt'),
             ('grouping', 'sip_group_ns', 'parse_cnt'),
-            ('parse+group other', 'parse_other', 'parse_cnt'),
+            ('other', 'parse_other', 'parse_cnt'),
             ('dump', 'dump_ns', 'dump_cnt'),
         ]
     return [
@@ -84,40 +84,20 @@ def main():
     with open(os.path.join(d, 'profile_summary.txt'), 'w') as f:
         f.write(summary + "\n")
 
-    # --- plots ---
-    t0 = int(rows[0]['ts_unix_ms'])
-    t = [(int(r['ts_unix_ms']) - t0) / 1000.0 for r in rows[1:]]
-    series = []
-    for lab, nsc, _ in stages:
-        vals = [max(stage_ns(rows[i], nsc) - stage_ns(rows[i - 1], nsc), 0) / 1e6
-                for i in range(1, len(rows))]
-        series.append(vals)
-
-    fig, ax = plt.subplots(2, 1, figsize=(12, 8))
-    ax[0].stackplot(t, series, labels=[s[0] for s in stages])
-    # sampling interval: if the stacked busy time reaches it, one core is saturated
-    if len(t) > 1:
-        interval_ms = 1000.0 * sorted(t[i] - t[i - 1] for i in range(1, len(t)))[len(t) // 2]
-        ax[0].axhline(interval_ms, color='gray', ls='--', lw=1,
-                      label='interval (1 core saturated)')
-    ax[0].set_ylabel('capture-thread busy ms / interval')
-    ax[0].set_xlabel('time (s)')
-    ax[0].legend(loc='upper left', fontsize=8)
-    ax[0].set_title('Capture-thread time breakdown - ' + os.path.basename(os.path.normpath(d)))
-    ax[0].grid(True, alpha=.3)
-
+    # --- bar chart: each stage's share of capture-thread time ---
     labels = [s[0] for s in stages]
     pct = [100.0 * totals[l] / grand for l in labels]
-    ax[1].barh(labels, pct, color='tab:blue')
-    ax[1].set_xlabel('% of total capture-thread time')
-    ax[1].invert_yaxis()
+    fig, ax = plt.subplots(figsize=(11, 4.5))
+    ax.barh(labels, pct, color='tab:blue')
+    ax.set_xlabel('% of total capture-thread time')
+    ax.invert_yaxis()
     for i, l in enumerate(labels):
         cnt = counts[l]
         avg_us = (totals[l] / cnt / 1000.0) if cnt else 0.0
-        ax[1].text(pct[i], i, '  %.1f%%  (%.1f us/pkt)' % (pct[i], avg_us),
-                   va='center', fontsize=8)
-    ax[1].grid(True, axis='x', alpha=.3)
-
+        ax.text(pct[i], i, '  %.1f%%  (%.1f us/pkt)' % (pct[i], avg_us),
+                va='center', fontsize=8)
+    ax.grid(True, axis='x', alpha=.3)
+    ax.set_title('Capture-thread time breakdown - ' + os.path.basename(os.path.normpath(d)))
     fig.tight_layout()
     out = os.path.join(d, 'profile.png')
     fig.savefig(out, dpi=110)
