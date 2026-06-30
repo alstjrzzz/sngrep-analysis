@@ -87,11 +87,14 @@ def main():
                  if k.startswith('cpu') and k.endswith('_pct') and k != 'cpu_all_pct']
         grid = np.array([[float(r[c]) for r in sysd] for c in cores])
         im = ax[3].pcolormesh(np.array(st), np.arange(len(cores)), grid,
-                              cmap='inferno', vmin=0, vmax=100, shading='nearest')
+                              cmap='RdYlGn_r', vmin=0, vmax=100, shading='nearest')
         ax[3].set_yticks(range(len(cores)))
         ax[3].set_yticklabels([c.replace('_pct', '') for c in cores])
         ax[3].set_ylabel('per-core CPU')
-        fig.colorbar(im, ax=list(ax), label='CPU %', pad=0.01, aspect=40)
+        # colorbar as a thin inset on the heatmap's right edge, so it does not
+        # add a full-height bar beside the line panels
+        cax = ax[3].inset_axes([1.012, 0.0, 0.012, 1.0])
+        fig.colorbar(im, cax=cax, label='CPU %')
 
     def norm_ms(ts):
         # tolerate stage timestamps written in ns (older runs) vs ms (stats)
