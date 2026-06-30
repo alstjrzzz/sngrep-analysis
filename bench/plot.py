@@ -10,6 +10,7 @@ sits at 100% while the total stays low, that is the single-thread sngrep limit
 import sys
 import csv
 import os
+import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -49,7 +50,8 @@ def main():
     dpc = [float(r['drop_pct']) for r in stats]
 
     npanel = 4 if sysd else 2
-    fig, ax = plt.subplots(npanel, 1, figsize=(12, 2.6 * npanel), sharex=True)
+    fig, ax = plt.subplots(npanel, 1, figsize=(12, 2.6 * npanel),
+                           sharex=True, constrained_layout=True)
 
     ax[0].plot(t, pps, label='received pps', color='tab:blue')
     ax[0].plot(t, dps, label='dropped pps', color='tab:red')
@@ -79,15 +81,17 @@ def main():
         ax[2].grid(True, alpha=.3)
         ax[2].legend(loc='upper left')
 
-        # per-core CPU on its own panel so a single pegged core is visible
+        # per-core CPU as a heatmap (cores x time): the moving hot core reads
+        # clearly where overlapping lines did not
         cores = [k for k in sysd[0]
                  if k.startswith('cpu') and k.endswith('_pct') and k != 'cpu_all_pct']
-        for c in cores:
-            ax[3].plot(st, [float(r[c]) for r in sysd], label=c.replace('_pct', ''))
-        ax[3].set_ylabel('per-core CPU %')
-        ax[3].set_ylim(0, 100)
-        ax[3].grid(True, alpha=.3)
-        ax[3].legend(loc='upper left', ncol=len(cores))
+        grid = np.array([[float(r[c]) for r in sysd] for c in cores])
+        im = ax[3].pcolormesh(np.array(st), np.arange(len(cores)), grid,
+                              cmap='inferno', vmin=0, vmax=100, shading='nearest')
+        ax[3].set_yticks(range(len(cores)))
+        ax[3].set_yticklabels([c.replace('_pct', '') for c in cores])
+        ax[3].set_ylabel('per-core CPU')
+        fig.colorbar(im, ax=list(ax), label='CPU %', pad=0.01, aspect=40)
 
     def norm_ms(ts):
         # tolerate stage timestamps written in ns (older runs) vs ms (stats)
@@ -106,8 +110,7 @@ def main():
         ax[0].text(x, ax[0].get_ylim()[1] * 0.97, s.get('rate_cps', ''),
                    fontsize=7, rotation=90, va='top', color='gray')
 
-    ax[-1].set_xlabel('time (s)')
-    fig.tight_layout()
+    ax[-1].set_xlabel('time (s)  (vertical dashes = cps stage boundaries, labeled on top)')
     out = os.path.join(d, 'report.png')
     fig.savefig(out, dpi=110)
     print("wrote", out)

@@ -94,8 +94,9 @@ sudo BUFFER_MB=16  ./bench/run_bench.sh
 
 ## 5. 결과
 
-초당 통화 수만 100에서 8000 cps까지 단계적으로 올린 signaling 측정이다. 부하가 오를 때
-드롭이 어느 지점에서 터지는지, 그 시점에 CPU와 메모리가 남는지를 같은 시간축에서 본다.
+초당 통화 수만 100에서 8000 cps까지 단계적으로 올린 signaling 측정이다(나머지 변수는 기본값).
+부하가 오를 때 드롭이 어느 지점에서 터지는지, 그 시점에 CPU와 메모리가 남는지를 같은 시간축에서
+본다. 트래픽 종류·유지시간·링버퍼 크기를 바꾼 결과는 RESULTS.md에 있다.
 
 ![signaling 측정](bench/results/20260629_045659_signaling_B2/report.png)
 
