@@ -92,11 +92,24 @@ int prof_enabled = 0;
 uint64_t prof_sip_parse_ns = 0;
 uint64_t prof_sip_group_ns = 0;
 
+// Wall-clock: used only for lock-wait (time blocked, not CPU spent).
 uint64_t
 prof_now_ns(void)
 {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t) ts.tv_sec * 1000000000ULL + ts.tv_nsec;
+}
+
+// Per-thread CPU time: used for processing stages so the measured per-packet
+// cost is not inflated by preemption when another process (e.g. SIPp) competes
+// for the CPU. Falls back to wall-clock if the clock is unavailable.
+uint64_t
+prof_cpu_ns(void)
+{
+    struct timespec ts;
+    if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts) != 0)
+        return prof_now_ns();
     return (uint64_t) ts.tv_sec * 1000000000ULL + ts.tv_nsec;
 }
 
@@ -393,9 +406,9 @@ parse_packet(u_char *info, const struct pcap_pkthdr *header, const u_char *packe
     memcpy(data, packet, header->caplen);
 
     // Check if we have a complete IP packet [T4: time IP reassembly stage]
-    uint64_t _t_ip = prof_enabled ? prof_now_ns() : 0;
+    uint64_t _t_ip = prof_enabled ? prof_cpu_ns() : 0;
     pkt = capture_packet_reasm_ip(capinfo, header, data, &size_payload, &size_capture);
-    if (prof_enabled) { prof_reasm_ip.ns += prof_now_ns() - _t_ip; prof_reasm_ip.count++; }
+    if (prof_enabled) { prof_reasm_ip.ns += prof_cpu_ns() - _t_ip; prof_reasm_ip.count++; }
     if (!pkt)
         return;
 
@@ -467,9 +480,9 @@ parse_packet(u_char *info, const struct pcap_pkthdr *header, const u_char *packe
         packet_set_payload(pkt, payload, size_payload);
 
         // Create a structure for this captured packet [T4: time TCP reassembly stage]
-        uint64_t _t_tcp = prof_enabled ? prof_now_ns() : 0;
+        uint64_t _t_tcp = prof_enabled ? prof_cpu_ns() : 0;
         pkt = capture_packet_reasm_tcp(capinfo, pkt, tcp, payload, size_payload);
-        if (prof_enabled) { prof_reasm_tcp.ns += prof_now_ns() - _t_tcp; prof_reasm_tcp.count++; }
+        if (prof_enabled) { prof_reasm_tcp.ns += prof_cpu_ns() - _t_tcp; prof_reasm_tcp.count++; }
         if (!pkt)
             return;
 
@@ -495,18 +508,18 @@ parse_packet(u_char *info, const struct pcap_pkthdr *header, const u_char *packe
     capture_lock();
     if (prof_enabled) prof_lockwait.ns += prof_now_ns() - _t_lw;
     // Check if we can handle this packet [T4: time parse + grouping stage]
-    uint64_t _t_p = prof_enabled ? prof_now_ns() : 0;
+    uint64_t _t_p = prof_enabled ? prof_cpu_ns() : 0;
     int _parsed = capture_packet_parse(pkt);
-    if (prof_enabled) { prof_parse.ns += prof_now_ns() - _t_p; prof_parse.count++; }
+    if (prof_enabled) { prof_parse.ns += prof_cpu_ns() - _t_p; prof_parse.count++; }
     if (_parsed == 0) {
 #ifdef USE_EEP
         // Send this packet through eep
         capture_eep_send(pkt);
 #endif
         // Store this packets in output file [T4: time dump stage]
-        uint64_t _t_d = prof_enabled ? prof_now_ns() : 0;
+        uint64_t _t_d = prof_enabled ? prof_cpu_ns() : 0;
         capture_dump_packet(pkt);
-        if (prof_enabled) { prof_dump.ns += prof_now_ns() - _t_d; prof_dump.count++; }
+        if (prof_enabled) { prof_dump.ns += prof_cpu_ns() - _t_d; prof_dump.count++; }
         // If storage is disabled, delete frames payload
         if (capture_cfg.storage == 0) {
             packet_free_frames(pkt);
@@ -1035,10 +1048,10 @@ capture_packet_parse(packet_t *packet)
     if (packet_payloadlen(packet)) {
         // [T4: time the full parse path, charged to whichever type this turns out
         //  to be, so SIP-packet cost and RTP-packet cost can be compared]
-        uint64_t _t_pp = prof_enabled ? prof_now_ns() : 0;
+        uint64_t _t_pp = prof_enabled ? prof_cpu_ns() : 0;
         // Parse this header and payload
         if (sip_check_packet(packet)) {
-            if (prof_enabled) { prof_sip_pkt.ns += prof_now_ns() - _t_pp; prof_sip_pkt.count++; }
+            if (prof_enabled) { prof_sip_pkt.ns += prof_cpu_ns() - _t_pp; prof_sip_pkt.count++; }
             return 0;
         }
 
@@ -1049,7 +1062,7 @@ capture_packet_parse(packet_t *packet)
             // Store this pacekt if capture rtp is enabled
             if (capture_cfg.rtp_capture) {
                 call_add_rtp_packet(stream_get_call(stream), packet);
-                if (prof_enabled) { prof_rtp_pkt.ns += prof_now_ns() - _t_pp; prof_rtp_pkt.count++; }
+                if (prof_enabled) { prof_rtp_pkt.ns += prof_cpu_ns() - _t_pp; prof_rtp_pkt.count++; }
                 return 0;
             }
         }

@@ -105,6 +105,7 @@ extern int prof_enabled;
 extern uint64_t prof_sip_parse_ns;
 extern uint64_t prof_sip_group_ns;
 uint64_t prof_now_ns(void);
+uint64_t prof_cpu_ns(void);
 
 enum capture_storage {
     CAPTURE_STORAGE_NONE = 0,

@@ -36,12 +36,13 @@
 #include "option.h"
 #include "setting.h"
 #include "filter.h"
-#include "capture.h"   // T4: prof_enabled, prof_now_ns, prof_sip_parse_ns/prof_sip_group_ns
+#include "capture.h"   // T4: prof_enabled, prof_cpu_ns, prof_sip_parse_ns/prof_sip_group_ns
 
 // T4 sub-stage timing: bucket sip_check_packet work into parse vs group.
+// Uses per-thread CPU time so the cost is not inflated by preemption.
 // Each use is wrapped in its own block so the timer var name does not collide.
-#define PROF_T(v)        uint64_t v = prof_enabled ? prof_now_ns() : 0
-#define PROF_ADD(acc, v) do { if (prof_enabled) (acc) += prof_now_ns() - (v); } while (0)
+#define PROF_T(v)        uint64_t v = prof_enabled ? prof_cpu_ns() : 0
+#define PROF_ADD(acc, v) do { if (prof_enabled) (acc) += prof_cpu_ns() - (v); } while (0)
 
 /**
  * @brief Linked list of parsed calls
