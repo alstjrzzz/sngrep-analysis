@@ -71,15 +71,17 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# Optional CPU pinning (PIN=1): keep the load generator off sngrep's cores so
+# Optional CPU pinning (PIN=1): keep the load generator off sngrep's core so
 # SIPp cannot starve sngrep's single capture thread (isolates that confound).
-# 4-core layout: sngrep -> cores 0,1 ; SIPp UAS -> core 2 ; SIPp UAC -> core 3.
+# sngrep needs <1 core, so give it core 0 alone and leave SIPp the other 3 cores
+# (so the offered load is not throttled by pinning).
+# 4-core layout: sngrep -> core 0 ; SIPp UAS -> core 1 ; SIPp UAC -> cores 2,3.
 SNG_PIN=""; UAS_PIN=""; UAC_PIN=""
 if [ "${PIN:-0}" = "1" ] && command -v taskset >/dev/null; then
-  SNG_PIN="taskset -c 0,1"
-  UAS_PIN="taskset -c 2"
-  UAC_PIN="taskset -c 3"
-  echo "pinning: sngrep=0,1 uas=2 uac=3" | tee -a "$OUT/config.txt"
+  SNG_PIN="taskset -c 0"
+  UAS_PIN="taskset -c 1"
+  UAC_PIN="taskset -c 2,3"
+  echo "pinning: sngrep=0 uas=1 uac=2,3" | tee -a "$OUT/config.txt"
 fi
 
 # 1) sngrep in a detached tmux pane (real ncurses workload, but scriptable)
