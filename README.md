@@ -94,11 +94,12 @@ sudo BUFFER_MB=16  ./bench/run_bench.sh
 
 ## 5. 결과
 
-signaling 측정. report.png는 received/dropped pps, 누적 드롭 비율, CPU·RAM의 3단 그래프다.
+초당 통화 수만 100에서 8000 cps까지 단계적으로 올린 signaling 측정이다. 부하가 오를 때
+드롭이 어느 지점에서 터지는지, 그 시점에 CPU와 메모리가 남는지를 같은 시간축에서 본다.
 
 ![signaling 측정](bench/results/20260629_045659_signaling_B2/report.png)
 
-profile.png는 캡처 스레드의 단계별 시간 구성이다.
+다음은 캡처 스레드가 한 패킷을 처리하며 각 단계에 쓴 시간 구성이다. 어디가 병목인지 본다.
 
 ![캡처 스레드 시간 구성](bench/results/20260629_073854_signaling_B2/profile.png)
 

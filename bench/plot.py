@@ -3,10 +3,9 @@
 
     python3 bench/plot.py bench/results/<run_dir>
 
-Writes <run_dir>/report.png. The CPU panel draws the total CPU plus faint
-per-core lines: if one core sits at 100% while the total stays low, that is the
-single-thread sngrep limit (not resource starvation); if every core is pegged,
-CPU contention is in play.
+Writes <run_dir>/report.png. A separate panel draws per-core CPU: if one core
+sits at 100% while the total stays low, that is the single-thread sngrep limit
+(not resource starvation); if every core is pegged, CPU contention is in play.
 """
 import sys
 import csv
@@ -49,8 +48,8 @@ def main():
     dps = [float(r['d_drop']) / interval for r in stats]
     dpc = [float(r['drop_pct']) for r in stats]
 
-    npanel = 3 if sysd else 2
-    fig, ax = plt.subplots(npanel, 1, figsize=(12, 3 * npanel), sharex=True)
+    npanel = 4 if sysd else 2
+    fig, ax = plt.subplots(npanel, 1, figsize=(12, 2.6 * npanel), sharex=True)
 
     ax[0].plot(t, pps, label='received pps', color='tab:blue')
     ax[0].plot(t, dps, label='dropped pps', color='tab:red')
@@ -60,26 +59,35 @@ def main():
     ax[0].set_title('sngrep capture benchmark - ' + os.path.basename(os.path.normpath(d)))
 
     ax[1].plot(t, dpc, color='tab:purple')
-    ax[1].set_ylabel('cumulative drop %')
+    ax[1].set_ylabel('loss ratio %\n(cum drop / cum recv)')
     ax[1].grid(True, alpha=.3)
 
     if sysd:
         st = [rel(r['ts_unix_ms']) for r in sysd]
+
+        def mem_pct(r):
+            used = float(r['mem_used_mb'])
+            tot = used + float(r['mem_avail_mb'])
+            return 100.0 * used / tot if tot else 0.0
+
+        # total CPU and RAM, both as %
         ax[2].plot(st, [float(r['cpu_all_pct']) for r in sysd],
                    label='CPU total %', color='tab:green')
-        cores = [k for k in sysd[0]
-                 if k.startswith('cpu') and k.endswith('_pct') and k != 'cpu_all_pct']
-        for c in cores:
-            ax[2].plot(st, [float(r[c]) for r in sysd], color='tab:green', alpha=.15)
-        ax[2].set_ylabel('CPU %')
+        ax[2].plot(st, [mem_pct(r) for r in sysd], label='RAM %', color='tab:orange')
+        ax[2].set_ylabel('usage %')
         ax[2].set_ylim(0, 100)
         ax[2].grid(True, alpha=.3)
         ax[2].legend(loc='upper left')
-        axb = ax[2].twinx()
-        axb.plot(st, [float(r['mem_used_mb']) for r in sysd],
-                 label='RAM used MB', color='tab:orange')
-        axb.set_ylabel('RAM used (MB)')
-        axb.legend(loc='upper right')
+
+        # per-core CPU on its own panel so a single pegged core is visible
+        cores = [k for k in sysd[0]
+                 if k.startswith('cpu') and k.endswith('_pct') and k != 'cpu_all_pct']
+        for c in cores:
+            ax[3].plot(st, [float(r[c]) for r in sysd], label=c.replace('_pct', ''))
+        ax[3].set_ylabel('per-core CPU %')
+        ax[3].set_ylim(0, 100)
+        ax[3].grid(True, alpha=.3)
+        ax[3].legend(loc='upper left', ncol=len(cores))
 
     def norm_ms(ts):
         # tolerate stage timestamps written in ns (older runs) vs ms (stats)
