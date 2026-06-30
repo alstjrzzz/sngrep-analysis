@@ -1,0 +1,1 @@
+scenario=signaling rates='100 500 1000 2000 4000 8000' stage=25s buffer=16MB iface=lo rtp=no profile=0
