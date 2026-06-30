@@ -31,11 +31,16 @@ def main():
         sys.exit(1)
     d = sys.argv[1]
     base = os.path.basename(os.path.normpath(d))
-    stats = load(os.path.join(d, 'stats.csv'))
-    sysd = load(os.path.join(d, 'sys.csv'))
+    def numeric_ts(rows):
+        # drop rows with a non-numeric ts_unix_ms (truncated/null-byte tails from
+        # an aborted run would otherwise crash int())
+        return [r for r in rows if (r.get('ts_unix_ms') or '').strip().isdigit()]
+
+    stats = numeric_ts(load(os.path.join(d, 'stats.csv')))
+    sysd = numeric_ts(load(os.path.join(d, 'sys.csv')))
     stages = load(os.path.join(d, 'stages.csv'))
     if not stats:
-        print("no stats.csv rows in", d)
+        print("no usable stats.csv rows in", d)
         sys.exit(1)
 
     t0 = int(stats[0]['ts_unix_ms'])
