@@ -21,8 +21,13 @@ GROUPS = ('sngrep', 'sipp')
 
 
 def read_jiffies():
-    """Return {group: total utime+stime jiffies} summed over matching pids."""
-    out = {g: 0 for g in GROUPS}
+    """Return {group: {pid: utime+stime jiffies}} for matching pids.
+
+    Per-pid (not a summed total) so that a pid exiting between samples does not
+    make the group total drop and yield a negative delta. The UAC restarts every
+    rate stage, so its pid churns constantly.
+    """
+    out = {g: {} for g in GROUPS}
     for pid in os.listdir('/proc'):
         if not pid.isdigit():
             continue
@@ -40,7 +45,7 @@ def read_jiffies():
                 fields = content[rp + 2:].split()
                 # fields after comm: state is index 0 (stat field 3);
                 # utime is stat field 14 -> index 11, stime field 15 -> index 12
-                out[g] += int(fields[11]) + int(fields[12])
+                out[g][pid] = int(fields[11]) + int(fields[12])
                 break
     return out
 
@@ -57,9 +62,11 @@ def main():
         dt = cur_t - prev_t
         row = [str(int(cur_t * 1000))]
         for g in GROUPS:
-            dj = cur[g] - prev[g]
+            # sum per-pid deltas; a new pid (born after the last sample) counts
+            # its jiffies since birth, an exited pid is simply dropped. Never negative.
+            dj = sum(j - prev[g].get(pid, 0) for pid, j in cur[g].items())
             pct = 100.0 * (dj / CLK_TCK) / (dt * NCPU) if dt > 0 else 0.0
-            row.append('%.1f' % pct)
+            row.append('%.1f' % max(pct, 0.0))
         print(','.join(row))
         sys.stdout.flush()
         prev, prev_t = cur, cur_t
