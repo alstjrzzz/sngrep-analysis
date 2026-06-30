@@ -84,6 +84,9 @@ static void capture_stats_stop();
 // on these, so plain counters are used. Sampled by the stats monitor into profile.csv.
 typedef struct { uint64_t ns; uint64_t count; } stage_prof_t;
 static stage_prof_t prof_reasm_ip, prof_reasm_tcp, prof_lockwait, prof_parse, prof_dump;
+// T4: full parse-path time bucketed by resulting packet type, to compare the
+// per-packet cost of SIP (regex parse) vs RTP (cheap dissect+store).
+static stage_prof_t prof_sip_pkt, prof_rtp_pkt;
 int prof_enabled = 0;
 // T4 sub-stage: parse vs group time inside capture_packet_parse, incremented from sip.c
 uint64_t prof_sip_parse_ns = 0;
@@ -1030,8 +1033,12 @@ capture_packet_parse(packet_t *packet)
 
     // We're only interested in packets with payload
     if (packet_payloadlen(packet)) {
+        // [T4: time the full parse path, charged to whichever type this turns out
+        //  to be, so SIP-packet cost and RTP-packet cost can be compared]
+        uint64_t _t_pp = prof_enabled ? prof_now_ns() : 0;
         // Parse this header and payload
         if (sip_check_packet(packet)) {
+            if (prof_enabled) { prof_sip_pkt.ns += prof_now_ns() - _t_pp; prof_sip_pkt.count++; }
             return 0;
         }
 
@@ -1042,6 +1049,7 @@ capture_packet_parse(packet_t *packet)
             // Store this pacekt if capture rtp is enabled
             if (capture_cfg.rtp_capture) {
                 call_add_rtp_packet(stream_get_call(stream), packet);
+                if (prof_enabled) { prof_rtp_pkt.ns += prof_now_ns() - _t_pp; prof_rtp_pkt.count++; }
                 return 0;
             }
         }
@@ -1137,7 +1145,8 @@ capture_stats_monitor(void *none)
         if (pout) {
             fprintf(pout, "ts_unix_ms,elapsed_ms,reasm_ip_ns,reasm_ip_cnt,reasm_tcp_ns,"
                           "reasm_tcp_cnt,lockwait_ns,parse_ns,parse_cnt,dump_ns,dump_cnt,"
-                          "sip_parse_ns,sip_group_ns\n");
+                          "sip_parse_ns,sip_group_ns,"
+                          "sip_pkt_ns,sip_pkt_cnt,rtp_pkt_ns,rtp_pkt_cnt\n");
             fflush(pout);
         }
     }
@@ -1192,14 +1201,16 @@ capture_stats_monitor(void *none)
         fflush(out);
 
         if (pout) {
-            fprintf(pout, "%lld,%ld,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu\n",
+            fprintf(pout, "%lld,%ld,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu\n",
                     ts_ms, elapsed_ms,
                     (unsigned long long) prof_reasm_ip.ns,  (unsigned long long) prof_reasm_ip.count,
                     (unsigned long long) prof_reasm_tcp.ns, (unsigned long long) prof_reasm_tcp.count,
                     (unsigned long long) prof_lockwait.ns,
                     (unsigned long long) prof_parse.ns,     (unsigned long long) prof_parse.count,
                     (unsigned long long) prof_dump.ns,      (unsigned long long) prof_dump.count,
-                    (unsigned long long) prof_sip_parse_ns, (unsigned long long) prof_sip_group_ns);
+                    (unsigned long long) prof_sip_parse_ns, (unsigned long long) prof_sip_group_ns,
+                    (unsigned long long) prof_sip_pkt.ns,   (unsigned long long) prof_sip_pkt.count,
+                    (unsigned long long) prof_rtp_pkt.ns,   (unsigned long long) prof_rtp_pkt.count);
             fflush(pout);
         }
 

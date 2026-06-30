@@ -79,6 +79,19 @@ def main():
         share = 100.0 * tot / grand
         avg_us = (tot / cnt / 1000.0) if cnt else 0.0
         lines.append("%-28s %8.2f %8.1f %9.2f us" % (lab, tot / 1e9, share, avg_us))
+
+    # per-packet cost by packet type (full parse path), if instrumented
+    if 'sip_pkt_ns' in last and 'rtp_pkt_ns' in last:
+        def per_pkt(ns_col, cnt_col):
+            cnt = int(last[cnt_col])
+            return ((int(last[ns_col]) / cnt / 1000.0) if cnt else 0.0), cnt
+        sp_us, sp_n = per_pkt('sip_pkt_ns', 'sip_pkt_cnt')
+        rt_us, rt_n = per_pkt('rtp_pkt_ns', 'rtp_pkt_cnt')
+        lines += ["",
+                  "per-packet cost by type (full parse path):",
+                  "  SIP  %8.2f us/pkt  (n=%d)" % (sp_us, sp_n),
+                  "  RTP  %8.2f us/pkt  (n=%d)" % (rt_us, rt_n)]
+
     summary = "\n".join(lines)
     print(summary)
     with open(os.path.join(d, 'profile_summary.txt'), 'w') as f:
