@@ -31,6 +31,7 @@ UAS_PORT=${UAS_PORT:-5060}
 UAC_PORT=${UAC_PORT:-5061}
 
 SYS_PID=""
+PROC_PID=""
 
 # epoch milliseconds (portable: some `date` builds ignore %3N and emit full ns)
 now_ms() { echo $(( $(date +%s%N) / 1000000 )); }
@@ -64,6 +65,7 @@ PROF_ENV=""
 
 cleanup() {
   [ -n "$SYS_PID" ] && kill "$SYS_PID" 2>/dev/null
+  [ -n "$PROC_PID" ] && kill "$PROC_PID" 2>/dev/null
   tmux kill-session -t sng_bench 2>/dev/null
   tmux kill-session -t uas_bench 2>/dev/null
 }
@@ -81,9 +83,11 @@ tmux kill-session -t uas_bench 2>/dev/null
 tmux new-session -d -s uas_bench "sipp -sn uas -p $UAS_PORT"
 sleep 1
 
-# 3) per-core CPU + RAM sampler
+# 3) per-core CPU + RAM sampler, and per-process CPU sampler (sngrep vs sipp)
 python3 bench/sample_sys.py > "$OUT/sys.csv" &
 SYS_PID=$!
+python3 bench/sample_proc.py > "$OUT/proc.csv" &
+PROC_PID=$!
 
 # 4) staged UAC call-rate ramp
 ulimit -n 65535 2>/dev/null
