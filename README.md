@@ -8,7 +8,9 @@ sngrep은 캡처 스레드 하나가 한 패킷의 캡처, 파싱, 그룹화를 
 캡처 스레드의 작업 시간 구성을 확인하기 위한 측정 코드와 자동화 스크립트를 제공한다.
 
 sngrep에 대한 정보는 원본 README와 wiki를 참고하면 된다.
+
 [irontec/sngrep](https://github.com/irontec/sngrep)
+
 [irontec/sngrep/wiki](https://github.com/irontec/sngrep/wiki)
 
 ## 1. 추가한 코드
@@ -28,45 +30,36 @@ capture.c와 sip.c에 흩어져 있다. 대신 모두 주석으로 표시해 원
 
 ## 2. 환경과 리소스
 
-Linux가 필요하다. sngrep은 POSIX 전용이라 Windows에서는 빌드되지 않고, 측정하려는 드롭이
-리눅스 커널 캡처 링버퍼에서 나는 현상이며, 측정 자동화도 apt 패키지(sip-tester, sysstat 등)에
-의존하기 때문이다. 배포판은 Ubuntu를 권장한다.
-
-측정은 VM에서 한다. 발신·수신·캡처를 한 머신에 격리해 재현성을 확보하고, 호스트 NIC 병목
-없이 루프백(lo)으로만 트래픽을 흘리기 위해서다. 발신(SIPp UAC), 수신(SIPp UAS), 캡처(sngrep)를
-한 VM 안에 두고 lo로 트래픽을 흘린다. lo도 커널 캡처 링버퍼를 그대로 통과하므로 보려는 드롭이
-재현되고, 물리 NIC을 끼우면 NIC 병목이 측정을 흐리기 때문에 일부러 lo를 쓴다.
-
-권장 사양과, 현재까지 결과(6장)를 낸 실제 검증 환경은 다음과 같다.
-
 | 항목 | 권장 | 기준 검증 환경 |
 |---|---|---|
 | OS | Linux (Ubuntu) | Ubuntu 26.04 Desktop |
 | vCPU | 2 이상 | 4 |
 | RAM | 4GB 이상 | 4GB |
 | 디스크 | 25GB 이상 | 25GB |
-| 가상화 | — | VirtualBox |
-| 호스트 | — | i5-1335U(10C/12T) / 16GB |
+| 가상화| — | VirtualBox |
+
+Linux 전용 (Windows 빌드 불가, 드롭 현상 자체가 리눅스 커널 캡처 링버퍼 이슈). Ubuntu 권장. <- 드롭 현상 자체가 리눅스 커널 캡처 링버퍼 이슈라는건 걍 맞는 말임? 걍 추측한거 아닌가? 여기 내용은 실험 내용 구성하고 니 맘대로 이유 갖다붙이는게 아니라 이유가 있어서 해당 환경을 선택한거여야 해. 리소스도 마찬가지.
+발신(SIPp UAC)/수신(SIPp UAS)/캡처(sngrep)를 단일 VM에 두고 lo로만 트래픽 전송 (호스트 NIC 병목 제거).
 
 ## 3. 테스트 구성
 
-초당 통화 수를 단계적으로 올리는 것을 기본 축으로 두고, 아래 변수를
+초당 통화 수(CPS)를 단계적으로 올리는 것을 기본 축으로 두고, 아래 변수를
 바꿔가며 측정한다. 매 실행마다 드롭 수, 코어별 CPU, RAM이 같은 시간축에 기록되므로, 리소스가
 붕괴점에 영향을 줬는지 함께 확인할 수 있다.
 
 | 변수 | 값 | 관찰 항목 |
 |---|---|---|
-| 초당 통화 수 (항상) | 100~8000 cps | 드롭이 시작되는 PPS 지점 |
+| CPS | 100~8000 cps | 드롭이 시작되는 PPS 지점 |
 | 트래픽 종류 | signaling / hold / rtp | RTP 미디어 부하가 드롭에 주는 영향 |
 | 통화 유지 시간 | 0 / 30s / 60s | 동시 통화 수·메모리·RTP 볼륨 변화 |
 | 커널 링버퍼 크기 | 2 / 16 / 64 MB | 버퍼 크기와 드롭의 관계 |
 
 통화당 SIP 메시지가 약 7개이므로 pps는 대략 cps × 7이다. RTP 시나리오는 sngrep -r 옵션과
-SIPp 미디어를 쓴다.
+SIPp 미디어를 쓴다. <- 이거 필요함?
 
 ### 측정 항목
 
-측정이 다루는 항목이다. T는 test를 뜻한다.
+근데 이거 위 변수랑 중복 아닌가?
 
 - T1, 드롭 발생 여부와 위치 — signaling 시나리오(기본 -B 2)에서 커널 캡처 링버퍼 드롭과
   NIC 드롭을 구분한다.
@@ -97,7 +90,7 @@ sudo chown -R $USER:$USER bench/results
 python3 bench/plot.py bench/results/<run_dir>       # report.png 생성
 ```
 
-다른 차원 예:
+다른 차원 예: <- 이건 뭐임?
 
 ```bash
 sudo SCENARIO=hold HOLD_MS=30000 ./bench/run_bench.sh
@@ -105,7 +98,7 @@ sudo SCENARIO=rtp  RATES="100 1000 3000" ./bench/run_bench.sh
 sudo BUFFER_MB=16  ./bench/run_bench.sh
 ```
 
-## 5. 결과 해석
+## 5. 결과 해석 <- 5, 6 섹션은 간략하게만 결과를 설명하고, 자세한 내용은 다른 md에 작성해서 링크 달아. 그리고 굳이 5랑 6 둘 다 있어야 할까? 
 
 report.png는 3단 그래프다.
 
@@ -123,6 +116,6 @@ report.png는 3단 그래프다.
   본다.
 - T4: 캡처 스레드 시간의 90%가 파싱과 그룹화다(패킷당 약 104µs). 파싱 병렬화를 정당화한다.
 
-## 7. 라이선스
+## 7. 라이선스 <- 이 내용 있어야 돼?
 
 원본 sngrep과 같이 GPLv3다 (COPYING, LICENSE). irontec/sngrep의 포크다.
