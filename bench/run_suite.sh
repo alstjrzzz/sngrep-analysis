@@ -41,6 +41,9 @@ run SCENARIO=hold HOLD_MS=60000 RATES="100 300 600 1000"
 # --- T4: profiled baseline (per-stage timing of the capture thread) ---
 run PROFILE=1 SCENARIO=signaling
 
+# --- T4 (RTP): per-packet cost of RTP vs SIP on a profiled RTP run ---
+run PROFILE=1 SCENARIO=rtp RATES="100 300 600 1000"
+
 echo
 echo "================ ALL RUNS DONE ================"
 
